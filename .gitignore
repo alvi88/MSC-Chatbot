@@ -1,0 +1,205 @@
+# --- Node.js / JavaScript ---
+# Dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Build outputs
+dist/
+build/
+out/
+.next/
+*.tsbuildinfo
+
+# Environment variables (IMPORTANT!)
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.*.local
+
+# --- Backend Specific ---
+# Logs
+logs/
+*.log
+server.log
+backend.log
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# --- Frontend Specific (React) ---
+# Build directory
+frontend/build/
+frontend/dist/
+
+# Development server files
+.eslintcache
+.DS_Store
+
+# --- Operating System Files ---
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*.swp
+*.swo
+*~
+.directory
+*.pid
+*.seed
+*.pid.lock
+
+# --- IDE / Editor Files ---
+# VS Code
+.vscode/
+*.code-workspace
+.vscode-test/
+.vscode/extensions.json
+.vscode/settings.json
+
+# IntelliJ / WebStorm / PhpStorm
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+.idea_modules/
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+.sublime/
+
+# Atom
+.atom/
+.config/
+
+# Vim
+*.swp
+*.swo
+*~
+.*.swp
+.*.swo
+
+# --- Project Specific ---
+# Backup files
+*.bak
+*.orig
+*.tmp
+*.temp
+
+# Local configuration
+*.local.json
+*.local.yml
+
+# Coverage reports
+coverage/
+.nyc_output/
+
+# Certificates / Keys
+*.pem
+*.p12
+*.crt
+*.key
+*.p8
+
+# Docker
+docker-compose.override.yml
+*.dockerignore
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+
+# User-specific files
+*.user
+*.userosscache
+*.sln.docstates
+
+# --- Ollama Specific ---
+# Ollama model cache (if you store models locally)
+ollama_models/
+~/.ollama/models/
+
+# --- Environment Variables ---
+# Backup .env files
+.env.backup
+.env.*.backup
+
+# --- Uploads / Media ---
+uploads/
+media/
+images/
+*.mp4
+*.mp3
+*.wav
+*.flac
+
+# --- Archive files ---
+*.zip
+*.tar.gz
+*.rar
+*.7z
+
+# --- Git ---
+# Git patch files
+*.patch
+
+# --- NPM / Yarn Cache ---
+.npm/
+.yarn/
+.yarn-integrity
+.yarn-metadata.json
+.yarnclean
+
+# --- Storybook (if used) ---
+storybook-static/
+
+# --- ESLint / Prettier ---
+.eslintcache
+.prettiercache
+
+# --- TypeScript ---
+*.tsbuildinfo
+
+# --- Jupyter Notebooks ---
+.ipynb_checkpoints/
+
+# --- Project Files ---
+*.log
+*.pid
+*.seed
+*.pid.lock
+
+# --- Compiled Python (if any) ---
+*.pyc
+__pycache__/
+
+# --- Misc ---
+*.class
+*.jar
+*.war
+*.ear
