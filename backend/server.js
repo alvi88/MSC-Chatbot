@@ -8,7 +8,7 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-const DEFAULT_MODEL = process.env.DEFAULT_MODEL || 'qwen3:4b';
+const DEFAULT_MODEL = process.env.DEFAULT_MODEL || 'phi3:3.8b';
 
 const AVAILABLE_MODELS = [
   'qwen3:4b',
