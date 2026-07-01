@@ -8,6 +8,17 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+const DEFAULT_MODEL = process.env.DEFAULT_MODEL || 'qwen3:4b';
+
+const AVAILABLE_MODELS = [
+  'qwen3:4b',
+  'llama3.1',
+  'mistral',
+  'gemma2',
+  'phi3',
+  'codellama'
+];
+
 // CORS
 app.use(cors({
   origin: '*',
@@ -20,11 +31,6 @@ app.use(express.json());
 // Ollama configuration
 const OLLAMA_HOST = process.env.OLLAMA_HOST || 'http://localhost:11434';
 const OLLAMA_API_URL = `${OLLAMA_HOST}/api/chat`;
-
-// Available models - update these based on what you have installed
-const AVAILABLE_MODELS = [
-  'ministral-3:14b-cloud'
-];
 
 // Conversation storage
 const conversations = new Map();
@@ -49,6 +55,7 @@ app.get('/api/health', async (req, res) => {
       timestamp: new Date().toISOString(),
       ollama: 'connected',
       models: installedModels.length > 0 ? installedModels : AVAILABLE_MODELS,
+      defaultModel: DEFAULT_MODEL,
       apiType: 'ollama'
     });
   } catch (error) {
@@ -58,6 +65,7 @@ app.get('/api/health', async (req, res) => {
       timestamp: new Date().toISOString(),
       ollama: 'disconnected',
       models: AVAILABLE_MODELS,
+      defaultModel: DEFAULT_MODEL,
       error: 'Ollama not running on localhost:11434'
     });
   }
@@ -71,10 +79,10 @@ app.post('/api/chat', async (req, res) => {
     const { 
       message, 
       conversationId = null, 
-      model = 'llama3.1',
-      temperature = 0.7,
-      maxTokens = 512,
-      systemPrompt = 'You are a helpful science assistant at the MagnifiScience Centre.'
+      model = DEFAULT_MODEL,
+      temperature = 1,
+      maxTokens = 4096,
+      systemPrompt = 'You are an experienced and helpful science communicator at the MagnifiScience Centre.'
     } = req.body;
 
     console.log(`📝 Message: ${message?.substring(0, 50)}...`);

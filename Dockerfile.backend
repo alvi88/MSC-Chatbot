@@ -1,0 +1,30 @@
+# Use Node.js 18 as the base image (lightweight Alpine version)
+FROM node:18-alpine
+
+# Set working directory inside the container
+WORKDIR /app
+
+# Copy package files first (for better caching)
+COPY backend/package*.json ./
+
+# Install production dependencies only
+RUN npm ci --only=production
+
+# Copy the rest of the backend code
+COPY backend/ .
+
+# Create a non-root user for better security
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nodejs -u 1001
+
+# Change ownership to non-root user
+RUN chown -R nodejs:nodejs /app
+
+# Switch to non-root user
+USER nodejs
+
+# Expose the port the app runs on
+EXPOSE 3001
+
+# Start the server
+CMD ["node", "server.js"]

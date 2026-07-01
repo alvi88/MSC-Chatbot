@@ -70,12 +70,13 @@ function App() {
   const [conversationId, setConversationId] = useState(null);
   const [error, setError] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
+  const [defaultModel, setDefaultModel] = useState('qwen3:4b');
 
   // Fixed settings
   const settings = {
-    model: 'ministral-3:14b-cloud',
-    temperature: 0.7,
-    maxTokens: 512,
+    model: defaultModel,
+    temperature: 1,
+    maxTokens: 4096,
     systemPrompt: 'You are an experienced and helpful science communicator at the MagnifiScience Centre.'
   };
 
@@ -87,27 +88,36 @@ function App() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Check connection
-  useEffect(() => {
-    const checkConnection = async () => {
-      console.log('🔍 Checking backend connection...');
-      try {
-        const health = await getHealth();
-        console.log('✅ Backend health check successful:', health);
-        setIsConnected(true);
-        setError(null);
-      } catch (err) {
-        console.error('❌ Backend connection failed:', err);
-        setIsConnected(false);
-        setError('Cannot connect to backend. Make sure it\'s running on port 3001');
+  // Update your health check
+useEffect(() => {
+  const checkConnection = async () => {
+    console.log('🔍 Checking backend connection...');
+    try {
+      const health = await getHealth();
+      console.log('✅ Backend health check successful:', health);
+      setIsConnected(true);
+      setError(null);
+      
+      // Get the default model from backend
+      if (health.defaultModel) {
+        setDefaultModel(health.defaultModel);
+        // Update settings with the default model
+        setSettings(prev => ({
+          ...prev,
+          model: health.defaultModel
+        }));
       }
-    };
+    } catch (err) {
+      console.error('❌ Backend connection failed:', err);
+      setIsConnected(false);
+      setError('Cannot connect to backend. Make sure it\'s running on port 3001');
+    }
+  };
     
-    checkConnection();
-    
-    const interval = setInterval(checkConnection, 10000);
-    return () => clearInterval(interval);
-  }, []);
+  checkConnection();
+  const interval = setInterval(checkConnection, 30000);
+  return () => clearInterval(interval);
+}, []);
 
   const handleSend = useCallback(async (e) => {
     e?.preventDefault();
