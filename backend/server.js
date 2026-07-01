@@ -109,22 +109,23 @@ app.post('/api/chat', async (req, res) => {
 
     // Call Ollama API
     const response = await axios.post(
-      OLLAMA_API_URL,
-      {
-        model: model,
-        messages: messages,
-        stream: false,
-        options: {
-          temperature: temperature,
-          num_predict: maxTokens
-        }
-      },
-      {
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        timeout: 120000 // 2 minute timeout for local models
+    `${OLLAMA_HOST}/api/chat`,
+    {
+      model: model,
+      messages: messages,
+      stream: false,
+      options: {
+        temperature: temperature,
+        num_predict: maxTokens,
+        num_ctx: 2048
       }
+    },
+    {
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      timeout: 300000 // Change from 60000 to 300000 (5 minutes)
+    }
     );
 
     // Extract the assistant's reply from Ollama response
