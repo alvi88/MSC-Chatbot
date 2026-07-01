@@ -24,11 +24,6 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
 
   # ===== FRONTEND SERVICE =====
   frontend:
@@ -43,11 +38,6 @@ services:
       - backend
     networks:
       - msc-network
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
 
   # ===== OLLAMA SERVICE =====
   ollama:
@@ -62,11 +52,6 @@ services:
       - OLLAMA_HOST=0.0.0.0
     networks:
       - msc-network
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
 
 # ===== NETWORKS =====
 networks:
