@@ -71,11 +71,11 @@ function App() {
   const [conversationId, setConversationId] = useState(null);
   const [error, setError] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
-  const [defaultModel, setDefaultModel] = useState('qwen3:4b');
+  const [defaultModel, setDefaultModel] = useState('phi3:3.8b');
 
   // ✅ FIXED: settings is now a state variable with setSettings
   const [settings, setSettings] = useState({
-    model: 'qwen3:4b',
+    model: 'phi3:3.8b',
     temperature: 1,
     maxTokens: 512,
     systemPrompt: 'You are an experienced and helpful science communicator at the MagnifiScience Centre.'
