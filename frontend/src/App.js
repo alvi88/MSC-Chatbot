@@ -4,12 +4,13 @@ import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import './App.css';
-import { sendMessage, getHealth, clearConversation } from './services/chatService';
+import { sendMessageStream, getHealth, clearConversation } from './services/chatService';
 import logo from './logo.png';
 
-// Message component with watermark
+// Message component with watermark and streaming support
 const Message = React.memo(({ message }) => {
   const isUser = message.role === 'user';
+  const isStreaming = message.isStreaming;
   
   return (
     <div className={`message ${isUser ? 'user-message' : 'assistant-message'}`}>
@@ -28,29 +29,45 @@ const Message = React.memo(({ message }) => {
         {isUser ? (
           <p>{message.content}</p>
         ) : (
-          <ReactMarkdown
-            components={{
-              code({ node, inline, className, children, ...props }) {
-                const match = /language-(\w+)/.exec(className || '');
-                return !inline && match ? (
-                  <SyntaxHighlighter
-                    style={vscDarkPlus}
-                    language={match[1]}
-                    PreTag="div"
-                    {...props}
-                  >
-                    {String(children).replace(/\n$/, '')}
-                  </SyntaxHighlighter>
-                ) : (
-                  <code className={className} {...props}>
-                    {children}
-                  </code>
-                );
-              }
-            }}
-          >
-            {message.content}
-          </ReactMarkdown>
+          <>
+            {message.content ? (
+              <>
+                <ReactMarkdown
+                  components={{
+                    code({ node, inline, className, children, ...props }) {
+                      const match = /language-(\w+)/.exec(className || '');
+                      return !inline && match ? (
+                        <SyntaxHighlighter
+                          style={vscDarkPlus}
+                          language={match[1]}
+                          PreTag="div"
+                          {...props}
+                        >
+                          {String(children).replace(/\n$/, '')}
+                        </SyntaxHighlighter>
+                      ) : (
+                        <code className={className} {...props}>
+                          {children}
+                        </code>
+                      );
+                    }
+                  }}
+                >
+                  {message.content}
+                </ReactMarkdown>
+                {isStreaming && <span className="streaming-cursor">▋</span>}
+              </>
+            ) : (
+              <div className="thinking-indicator">
+                <span>Thinking</span>
+                <div className="dots">
+                  <span></span>
+                  <span></span>
+                  <span></span>
+                </div>
+              </div>
+            )}
+          </>
         )}
         
         {message.usage && (
@@ -73,7 +90,6 @@ function App() {
   const [isConnected, setIsConnected] = useState(false);
   const [defaultModel, setDefaultModel] = useState('phi3:3.8b');
 
-  // ✅ FIXED: settings is now a state variable with setSettings
   const [settings, setSettings] = useState({
     model: 'phi3:3.8b',
     temperature: 1,
@@ -89,7 +105,7 @@ function App() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // ✅ FIXED: Health check with proper dependencies
+  // Health check
   useEffect(() => {
     const checkConnection = async () => {
       console.log('🔍 Checking backend connection...');
@@ -99,10 +115,8 @@ function App() {
         setIsConnected(true);
         setError(null);
         
-        // Get the default model from backend
         if (health.defaultModel) {
           setDefaultModel(health.defaultModel);
-          // ✅ FIXED: setSettings now works because it's a state setter
           setSettings(prev => ({
             ...prev,
             model: health.defaultModel
@@ -118,8 +132,11 @@ function App() {
     checkConnection();
     const interval = setInterval(checkConnection, 30000);
     return () => clearInterval(interval);
-  }, []); // ✅ Empty dependency array = run once
+  }, []);
 
+  // ============================================
+  // 🔥 HANDLE SEND WITH STREAMING
+  // ============================================
   const handleSend = useCallback(async (e) => {
     e?.preventDefault();
     
@@ -129,37 +146,83 @@ function App() {
     setInput('');
     setError(null);
     
+    // Add user message
     setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
     setIsLoading(true);
     
+    // Create a placeholder for the assistant's response
+    const assistantId = Date.now();
+    setMessages(prev => [...prev, { 
+      role: 'assistant', 
+      content: '',
+      id: assistantId,
+      isStreaming: true
+    }]);
+    
     try {
-      console.log('📤 Sending message to backend...');
-      const response = await sendMessage({
-        message: userMessage,
-        conversationId,
-        model: settings.model,
-        temperature: settings.temperature,
-        maxTokens: settings.maxTokens,
-        systemPrompt: settings.systemPrompt
-      });
+      console.log('📤 Sending streaming message to backend...');
+      let fullResponse = '';
+      let hasReceivedContent = false;
       
-      console.log('📥 Response received:', response);
+      await sendMessageStream(
+        {
+          message: userMessage,
+          conversationId,
+          model: settings.model,
+          temperature: settings.temperature,
+          maxTokens: settings.maxTokens,
+          systemPrompt: settings.systemPrompt
+        },
+        // onChunk - called for each piece of the response
+        (chunk) => {
+          hasReceivedContent = true;
+          fullResponse += chunk;
+          setMessages(prev => prev.map(msg => 
+            msg.id === assistantId 
+              ? { ...msg, content: fullResponse }
+              : msg
+          ));
+        },
+        // onComplete - called when response is complete
+        (newConversationId, totalTokens) => {
+          console.log('✅ Streaming complete');
+          setConversationId(newConversationId);
+          setMessages(prev => prev.map(msg => 
+            msg.id === assistantId 
+              ? { 
+                  ...msg, 
+                  isStreaming: false,
+                  usage: totalTokens ? { total_tokens: totalTokens } : undefined
+                }
+              : msg
+          ));
+          setIsLoading(false);
+        },
+        // onError - called if there's an error
+        (error) => {
+          console.error('❌ Stream error:', error);
+          setError(error || 'An error occurred');
+          // Remove the placeholder message if no content was received
+          if (!hasReceivedContent) {
+            setMessages(prev => prev.filter(msg => msg.id !== assistantId));
+          } else {
+            // Keep what we have but mark as not streaming
+            setMessages(prev => prev.map(msg => 
+              msg.id === assistantId 
+                ? { ...msg, isStreaming: false }
+                : msg
+            ));
+          }
+          setIsLoading(false);
+        }
+      );
       
-      if (response.success) {
-        setConversationId(response.conversationId);
-        setMessages(prev => [...prev, { 
-          role: 'assistant', 
-          content: response.reply,
-          usage: response.usage
-        }]);
-      } else {
-        setError('Failed to get response');
-      }
     } catch (err) {
       console.error('❌ Send error:', err);
-      setError(err.error || err.message || 'An error occurred');
-    } finally {
+      setError(err.message || 'An error occurred');
+      setMessages(prev => prev.filter(msg => msg.id !== assistantId));
       setIsLoading(false);
+    } finally {
       inputRef.current?.focus();
     }
   }, [input, isLoading, conversationId, settings]);
@@ -244,7 +307,8 @@ function App() {
               <Message key={index} message={msg} />
             ))
           )}
-          {isLoading && (
+          {/* Show loading indicator when waiting for first token */}
+          {isLoading && !messages.some(msg => msg.isStreaming) && (
             <div className="typing-indicator-wrapper">
               <div className="message-avatar">
                 <FaRobot />

@@ -46,7 +46,6 @@ app.get('/api/health', async (req, res) => {
   console.log('✅ Health check requested');
   
   try {
-    // Check if Ollama is running
     const ollamaHealth = await axios.get(`${OLLAMA_HOST}/api/tags`);
     const installedModels = ollamaHealth.data.models.map(m => m.name);
     
@@ -71,9 +70,11 @@ app.get('/api/health', async (req, res) => {
   }
 });
 
-// Chat completion endpoint - OLLAMA VERSION
+// ============================================
+// 🔥 CHAT ENDPOINT WITH STREAMING
+// ============================================
 app.post('/api/chat', async (req, res) => {
-  console.log('💬 Chat request received');
+  console.log('💬 Chat request received (streaming)');
   
   try {
     const { 
@@ -105,63 +106,105 @@ app.post('/api/chat', async (req, res) => {
       { role: 'user', content: message }
     ];
 
-    console.log(`📤 Sending ${messages.length} messages to Ollama`);
+    console.log(`📤 Sending ${messages.length} messages to Ollama (streaming)`);
 
-    // Call Ollama API
-    const response = await axios.post(
-    `${OLLAMA_HOST}/api/chat`,
-    {
-      model: model,
-      messages: messages,
-      stream: false,
-      options: {
-        temperature: temperature,
-        num_predict: maxTokens,
-        num_ctx: 2048
-      }
-    },
-    {
+    // ============================================
+    // SET UP STREAMING HEADERS
+    // ============================================
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no'); // Disable nginx buffering
+
+    // ============================================
+    // CALL OLLAMA WITH STREAMING
+    // ============================================
+    const response = await axios({
+      method: 'POST',
+      url: OLLAMA_API_URL,
+      data: {
+        model: model,
+        messages: messages,
+        stream: true,
+        options: {
+          temperature: temperature,
+          num_predict: maxTokens,
+          num_ctx: 2048
+        }
+      },
       headers: {
         'Content-Type': 'application/json'
       },
-      timeout: 300000 // Change from 60000 to 300000 (5 minutes)
-    }
-    );
+      responseType: 'stream',
+      timeout: 600000 // 10 minutes
+    });
 
-    // Extract the assistant's reply from Ollama response
-    const assistantReply = response.data.message.content;
-    
-    // Ollama doesn't provide token usage like NVIDIA, but we can estimate
-    const usage = {
-      total_tokens: response.data.eval_count || 0,
-      prompt_tokens: response.data.prompt_eval_count || 0,
-      completion_tokens: response.data.eval_count || 0
-    };
-
-    console.log(`✅ Received reply: ${assistantReply?.substring(0, 50)}...`);
-
-    // Store conversation
+    // Store conversation (without assistant response yet)
     const newConversationId = conversationId || `conv_${Date.now()}`;
     if (!conversations.has(newConversationId)) {
       conversations.set(newConversationId, []);
     }
     conversations.get(newConversationId).push(
-      { role: 'user', content: message },
-      { role: 'assistant', content: assistantReply }
+      { role: 'user', content: message }
     );
 
-    // Send response
-    res.json({
-      success: true,
-      conversationId: newConversationId,
-      reply: assistantReply,
-      usage: usage,
-      model: model,
-      apiType: 'ollama'
+    let fullResponse = '';
+    let totalTokens = 0;
+
+    // ============================================
+    // STREAM THE RESPONSE TO THE CLIENT
+    // ============================================
+    response.data.on('data', (chunk) => {
+      try {
+        const lines = chunk.toString().split('\n').filter(line => line.trim() !== '');
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = JSON.parse(line.slice(6));
+            
+            if (data.message && data.message.content) {
+              const content = data.message.content;
+              fullResponse += content;
+              // Send each token to the client
+              res.write(`data: ${JSON.stringify({ content: content, done: false })}\n\n`);
+            }
+            
+            if (data.done) {
+              totalTokens = data.total_duration || 0;
+              // Update conversation with full response
+              const lastConv = conversations.get(newConversationId);
+              if (lastConv) {
+                lastConv.push({ 
+                  role: 'assistant', 
+                  content: fullResponse 
+                });
+              }
+              // Send completion signal
+              res.write(`data: ${JSON.stringify({ 
+                done: true, 
+                conversationId: newConversationId,
+                total_tokens: totalTokens 
+              })}\n\n`);
+            }
+          }
+        }
+      } catch (err) {
+        console.error('❌ Stream parsing error:', err.message);
+      }
+    });
+
+    response.data.on('end', () => {
+      console.log(`✅ Streaming complete (${fullResponse.length} chars)`);
+      res.end();
+    });
+
+    response.data.on('error', (err) => {
+      console.error('❌ Stream error:', err.message);
+      res.write(`data: ${JSON.stringify({ error: err.message, done: true })}\n\n`);
+      res.end();
     });
 
   } catch (error) {
-    console.error('❌ Ollama API Error:', error.message);
+    console.error('❌ Chat error:', error.message);
     
     if (error.code === 'ECONNREFUSED') {
       return res.status(503).json({ 
@@ -169,18 +212,11 @@ app.post('/api/chat', async (req, res) => {
       });
     }
     
-    if (error.response) {
-      console.error('Response status:', error.response.status);
-      console.error('Response data:', error.response.data);
-      return res.status(error.response.status).json({ 
-        error: `Ollama error: ${error.response.data.error || 'Unknown error'}` 
-      });
-    }
-
-    res.status(500).json({ 
-      error: 'An error occurred while processing your request.',
-      details: error.message
-    });
+    res.write(`data: ${JSON.stringify({ 
+      error: error.response?.data?.error || error.message, 
+      done: true 
+    })}\n\n`);
+    res.end();
   }
 });
 
