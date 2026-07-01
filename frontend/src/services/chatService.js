@@ -1,90 +1,142 @@
-// In App.js, replace the handleSend function with this:
+import axios from 'axios';
 
-const handleSend = useCallback(async (e) => {
-  e?.preventDefault();
-  
-  if (!input.trim() || isLoading) return;
-  
-  const userMessage = input.trim();
-  setInput('');
-  setError(null);
-  
-  // Add user message
-  setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
-  setIsLoading(true);
-  
-  // Create a placeholder for the assistant's response
-  const assistantId = Date.now();
-  setMessages(prev => [...prev, { 
-    role: 'assistant', 
-    content: '',
-    id: assistantId,
-    isStreaming: true
-  }]);
+// Use relative URL - proxy will handle it
+const API_BASE = '/api';
+
+const api = axios.create({
+  baseURL: API_BASE,
+  timeout: 300000,
+  headers: {
+    'Content-Type': 'application/json'
+  }
+});
+
+// Add logging interceptors
+api.interceptors.request.use(
+  config => {
+    console.log('📤 API Request:', config.method.toUpperCase(), config.url, config.data);
+    return config;
+  },
+  error => {
+    console.error('❌ API Request Error:', error);
+    return Promise.reject(error);
+  }
+);
+
+api.interceptors.response.use(
+  response => {
+    console.log('📥 API Response:', response.status, response.data);
+    return response;
+  },
+  error => {
+    console.error('❌ API Response Error:', error.response?.status, error.response?.data || error.message);
+    return Promise.reject(error);
+  }
+);
+
+// ============================================
+// ✅ EXPORT: Health check
+// ============================================
+export const getHealth = async () => {
+  const response = await api.get('/health');
+  return response.data;
+};
+
+// ============================================
+// 🔥 EXPORT: Streaming chat function
+// ============================================
+export const sendMessageStream = async (data, onChunk, onComplete, onError) => {
+  console.log('📤 Sending streaming request...');
   
   try {
-    let fullResponse = '';
-    let hasReceivedContent = false;
-    
-    await sendMessageStream(
-      {
-        message: userMessage,
-        conversationId,
-        model: settings.model,
-        temperature: settings.temperature,
-        maxTokens: settings.maxTokens,
-        systemPrompt: settings.systemPrompt
+    const response = await fetch(`${API_BASE}/chat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
       },
-      // onChunk - called for each piece of the response
-      (chunk) => {
-        hasReceivedContent = true;
-        fullResponse += chunk;
-        setMessages(prev => prev.map(msg => 
-          msg.id === assistantId 
-            ? { ...msg, content: fullResponse }
-            : msg
-        ));
-      },
-      // onComplete - called when response is complete
-      (newConversationId, totalTokens) => {
-        setConversationId(newConversationId);
-        setMessages(prev => prev.map(msg => 
-          msg.id === assistantId 
-            ? { 
-                ...msg, 
-                isStreaming: false,
-                usage: totalTokens ? { total_tokens: totalTokens } : undefined
-              }
-            : msg
-        ));
-        setIsLoading(false);
-      },
-      // onError - called if there's an error
-      (error) => {
-        console.error('❌ Stream error:', error);
-        setError(error || 'An error occurred');
-        // Remove the placeholder message if no content was received
-        if (!hasReceivedContent) {
-          setMessages(prev => prev.filter(msg => msg.id !== assistantId));
-        } else {
-          // Keep what we have but mark as not streaming
-          setMessages(prev => prev.map(msg => 
-            msg.id === assistantId 
-              ? { ...msg, isStreaming: false }
-              : msg
-          ));
-        }
-        setIsLoading(false);
+      body: JSON.stringify(data),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) {
+        console.log('✅ Stream complete');
+        break;
       }
-    );
-    
-  } catch (err) {
-    console.error('❌ Send error:', err);
-    setError(err.message || 'An error occurred');
-    // Remove the placeholder if it exists
-    setMessages(prev => prev.filter(msg => msg.id !== assistantId));
-    setIsLoading(false);
-  } finally {
-    inputRef.current?.focus();
+
+      buffer += decoder.decode(value, { stream: true });
+      
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        const trimmedLine = line.trim();
+        if (trimmedLine === '') continue;
+        
+        if (trimmedLine.startsWith('data: ')) {
+          try {
+            const jsonData = JSON.parse(trimmedLine.slice(6));
+            
+            if (jsonData.error) {
+              console.error('❌ Stream error:', jsonData.error);
+              onError(jsonData.error);
+              return;
+            }
+            
+            if (jsonData.done) {
+              console.log('✅ Stream complete, conversationId:', jsonData.conversationId);
+              onComplete(jsonData.conversationId, jsonData.total_tokens);
+              return;
+            }
+            
+            if (jsonData.content) {
+              onChunk(jsonData.content);
+            }
+          } catch (e) {
+            console.error('❌ Parse error:', e, 'Line:', trimmedLine);
+          }
+        }
+      }
+    }
+  } catch (error) {
+    console.error('❌ Stream error:', error.message);
+    onError(error.message);
   }
-}, [input, isLoading, conversationId, settings]);
+};
+
+// ============================================
+// ✅ EXPORT: Regular send message (for compatibility)
+// ============================================
+export const sendMessage = async (data) => {
+  const response = await api.post('/chat', data);
+  return response.data;
+};
+
+// ============================================
+// ✅ EXPORT: Conversation management
+// ============================================
+export const getConversations = async () => {
+  const response = await api.get('/conversations');
+  return response.data;
+};
+
+export const getConversation = async (id) => {
+  const response = await api.get(`/conversations/${id}`);
+  return response.data;
+};
+
+export const clearConversation = async (id) => {
+  const response = await api.delete(`/conversations/${id}`);
+  return response.data;
+};
+
+export default api;
