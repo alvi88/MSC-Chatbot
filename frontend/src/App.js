@@ -64,6 +64,7 @@ const Message = React.memo(({ message }) => {
 });
 
 function App() {
+  // ===== STATE DECLARATIONS =====
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -72,13 +73,13 @@ function App() {
   const [isConnected, setIsConnected] = useState(false);
   const [defaultModel, setDefaultModel] = useState('qwen3:4b');
 
-  // Fixed settings
-  const settings = {
-    model: defaultModel,
+  // ✅ FIXED: settings is now a state variable with setSettings
+  const [settings, setSettings] = useState({
+    model: 'qwen3:4b',
     temperature: 1,
-    maxTokens: 4096,
+    maxTokens: 512,
     systemPrompt: 'You are an experienced and helpful science communicator at the MagnifiScience Centre.'
-  };
+  });
 
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
@@ -88,36 +89,36 @@ function App() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Update your health check
-useEffect(() => {
-  const checkConnection = async () => {
-    console.log('🔍 Checking backend connection...');
-    try {
-      const health = await getHealth();
-      console.log('✅ Backend health check successful:', health);
-      setIsConnected(true);
-      setError(null);
-      
-      // Get the default model from backend
-      if (health.defaultModel) {
-        setDefaultModel(health.defaultModel);
-        // Update settings with the default model
-        setSettings(prev => ({
-          ...prev,
-          model: health.defaultModel
-        }));
+  // ✅ FIXED: Health check with proper dependencies
+  useEffect(() => {
+    const checkConnection = async () => {
+      console.log('🔍 Checking backend connection...');
+      try {
+        const health = await getHealth();
+        console.log('✅ Backend health check successful:', health);
+        setIsConnected(true);
+        setError(null);
+        
+        // Get the default model from backend
+        if (health.defaultModel) {
+          setDefaultModel(health.defaultModel);
+          // ✅ FIXED: setSettings now works because it's a state setter
+          setSettings(prev => ({
+            ...prev,
+            model: health.defaultModel
+          }));
+        }
+      } catch (err) {
+        console.error('❌ Backend connection failed:', err);
+        setIsConnected(false);
+        setError('Cannot connect to backend. Make sure it\'s running on port 3001');
       }
-    } catch (err) {
-      console.error('❌ Backend connection failed:', err);
-      setIsConnected(false);
-      setError('Cannot connect to backend. Make sure it\'s running on port 3001');
-    }
-  };
+    };
     
-  checkConnection();
-  const interval = setInterval(checkConnection, 30000);
-  return () => clearInterval(interval);
-}, []);
+    checkConnection();
+    const interval = setInterval(checkConnection, 30000);
+    return () => clearInterval(interval);
+  }, []); // ✅ Empty dependency array = run once
 
   const handleSend = useCallback(async (e) => {
     e?.preventDefault();
@@ -170,9 +171,8 @@ useEffect(() => {
     }
   }, [handleSend]);
 
-  // FIXED: Clear conversation handler with proper state management
   const handleClearConversation = useCallback(async () => {
-    if (messages.length === 0) return; // Don't do anything if already empty
+    if (messages.length === 0) return;
     
     if (conversationId) {
       try {
@@ -182,12 +182,9 @@ useEffect(() => {
       }
     }
     
-    // Clear all state
     setMessages([]);
     setConversationId(null);
     setError(null);
-    
-    // Focus input after clearing
     inputRef.current?.focus();
   }, [conversationId, messages.length]);
 
@@ -196,7 +193,6 @@ useEffect(() => {
     inputRef.current?.focus();
   };
 
-  // Determine if delete button should be disabled
   const isDeleteDisabled = messages.length === 0;
 
   return (

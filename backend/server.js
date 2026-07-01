@@ -81,7 +81,7 @@ app.post('/api/chat', async (req, res) => {
       conversationId = null, 
       model = DEFAULT_MODEL,
       temperature = 1,
-      maxTokens = 4096,
+      maxTokens = 512,
       systemPrompt = 'You are an experienced and helpful science communicator at the MagnifiScience Centre.'
     } = req.body;
 
