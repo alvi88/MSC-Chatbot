@@ -91,8 +91,8 @@ function App() {
   const [defaultModel, setDefaultModel] = useState('phi3:3.8b');
 
   const [settings, setSettings] = useState({
-    model: 'phi3:3.8b',
-    temperature: 1,
+    model: 'qwen3-coder:480b-cloud',
+    temperature: 0.7,
     maxTokens: 512,
     systemPrompt: 'You are an experienced and helpful science communicator at the MagnifiScience Centre.'
   });
