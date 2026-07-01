@@ -13,7 +13,7 @@ services:
       - OLLAMA_HOST=https://ollama.com/api
       - OLLAMA_API_KEY=${OLLAMA_API_KEY}  # Pass from environment
       - PORT=3001
-      - DEFAULT_MODEL=gpt-oss:120b-cloud
+      - DEFAULT_MODEL=qwen3-coder:480b-cloud
     env_file:
       - backend/.env
     networks:
