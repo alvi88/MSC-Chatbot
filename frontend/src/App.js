@@ -4,10 +4,10 @@ import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import './App.css';
-import { webSearch, getHealth, clearConversation } from './services/chatService';
+import { sendMessage, getHealth, clearConversation } from './services/chatService';
 import logo from './logo.png';
 
-// Message component with watermark and search results
+// Message component with watermark
 const Message = React.memo(({ message }) => {
   const isUser = message.role === 'user';
   
@@ -17,6 +17,7 @@ const Message = React.memo(({ message }) => {
         {isUser ? <FaUser /> : <FaRobot />}
       </div>
       <div className="message-content">
+        {/* AI Response Watermark - Only for assistant messages */}
         {!isUser && (
           <div className="ai-watermark">
             <img src={logo} alt="MagnifiScience" className="watermark-logo" />
@@ -27,82 +28,57 @@ const Message = React.memo(({ message }) => {
         {isUser ? (
           <p>{message.content}</p>
         ) : (
-          <div className="web-search-results">
-            <ReactMarkdown
-              components={{
-                code({ node, inline, className, children, ...props }) {
-                  const match = /language-(\w+)/.exec(className || '');
-                  return !inline && match ? (
-                    <SyntaxHighlighter
-                      style={vscDarkPlus}
-                      language={match[1]}
-                      PreTag="div"
-                      {...props}
-                    >
-                      {String(children).replace(/\n$/, '')}
-                    </SyntaxHighlighter>
-                  ) : (
-                    <code className={className} {...props}>
-                      {children}
-                    </code>
-                  );
-                }
-              }}
-            >
-              {message.content}
-            </ReactMarkdown>
-            
-            {message.results && message.results.length > 0 && (
-              <div className="search-sources">
-                <h4>📚 Sources:</h4>
-                <ul>
-                  {message.results.map((result, index) => (
-                    <li key={index}>
-                      <a href={result.url} target="_blank" rel="noopener noreferrer">
-                        {result.title || result.url}
-                      </a>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </div>
+          <ReactMarkdown
+            components={{
+              code({ node, inline, className, children, ...props }) {
+                const match = /language-(\w+)/.exec(className || '');
+                return !inline && match ? (
+                  <SyntaxHighlighter
+                    style={vscDarkPlus}
+                    language={match[1]}
+                    PreTag="div"
+                    {...props}
+                  >
+                    {String(children).replace(/\n$/, '')}
+                  </SyntaxHighlighter>
+                ) : (
+                  <code className={className} {...props}>
+                    {children}
+                  </code>
+                );
+              }
+            }}
+          >
+            {message.content}
+          </ReactMarkdown>
         )}
         
-        <div className="message-footer">
-          {message.usage && (
-            <div className="message-usage">
-              <small>⚡ {message.usage.prompt_tokens || 0} tokens</small>
-            </div>
-          )}
-          
-          {!isUser && message.results && message.results.length > 0 && (
-            <div className="message-usage search-stats">
-              <small>🔍 Found {message.results.length} results</small>
-            </div>
-          )}
-        </div>
+        {message.usage && (
+          <div className="message-usage">
+            <small>⚡ {message.usage.total_tokens} tokens</small>
+          </div>
+        )}
       </div>
     </div>
   );
 });
 
 function App() {
-  // ===== STATE DECLARATIONS =====
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [conversationId, setConversationId] = useState(null);
   const [error, setError] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
-  const [defaultModel, setDefaultModel] = useState('phi3:3.8b');
+  const [defaultModel, setDefaultModel] = useState('qwen3:4b');
 
-  const [settings, setSettings] = useState({
-    model: 'qwen3-coder:480b-cloud',
-    temperature: 0.7,
-    maxTokens: 512,
+  // Fixed settings
+  const settings = {
+    model: defaultModel,
+    temperature: 1,
+    maxTokens: 4096,
     systemPrompt: 'You are an experienced and helpful science communicator at the MagnifiScience Centre.'
-  });
+  };
 
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
@@ -112,109 +88,74 @@ function App() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Health check
-  useEffect(() => {
-    const checkConnection = async () => {
-      console.log('🔍 Checking backend connection...');
-      try {
-        const health = await getHealth();
-        console.log('✅ Backend health check successful:', health);
-        setIsConnected(true);
-        setError(null);
-        
-        if (health.defaultModel) {
-          setDefaultModel(health.defaultModel);
-          setSettings(prev => ({
-            ...prev,
-            model: health.defaultModel
-          }));
-        }
-      } catch (err) {
-        console.error('❌ Backend connection failed:', err);
-        setIsConnected(false);
-        setError('Cannot connect to backend. Make sure it\'s running on port 3001');
-      }
-    };
-    
-    checkConnection();
-    const interval = setInterval(checkConnection, 30000);
-    return () => clearInterval(interval);
-  }, []);
-
-  // ============================================
-  // 🔥 FOCUS INPUT HELPER
-  // ============================================
-  const focusInput = useCallback(() => {
-    // Small delay to ensure the DOM is updated
-    setTimeout(() => {
-      if (inputRef.current) {
-        inputRef.current.focus();
-      }
-    }, 50);
-  }, []);
-
-  // ============================================
-  // 🔥 HANDLE SEND - Web Search
-  // ============================================
-  const handleSend = useCallback(async (e) => {
-    e?.preventDefault();
-    
-    if (!input.trim() || isLoading) return;
-    
-    const userMessage = input.trim();
-    setInput('');
-    setError(null);
-    
-    // Add user message
-    setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
-    setIsLoading(true);
-    
+  // Update your health check
+useEffect(() => {
+  const checkConnection = async () => {
+    console.log('🔍 Checking backend connection...');
     try {
-      console.log('🔍 Calling web search for:', userMessage);
-      const response = await webSearch(userMessage, 5);
+      const health = await getHealth();
+      console.log('✅ Backend health check successful:', health);
+      setIsConnected(true);
+      setError(null);
       
-      console.log('📥 Web search response:', response);
-      
-      if (response.success && response.results) {
-        const formattedResults = formatSearchResults(response.results);
-        setMessages(prev => [...prev, { 
-          role: 'assistant', 
-          content: formattedResults,
-          results: response.results
-        }]);
-      } else {
-        setError(response.error || 'Failed to get search results');
+      // Get the default model from backend
+      if (health.defaultModel) {
+        setDefaultModel(health.defaultModel);
+        // Update settings with the default model
+        setSettings(prev => ({
+          ...prev,
+          model: health.defaultModel
+        }));
       }
     } catch (err) {
-      console.error('❌ Search error:', err);
-      setError(err.error || err.message || 'An error occurred');
-    } finally {
-      setIsLoading(false);
-      // ✅ Focus input after response is displayed
-      focusInput();
+      console.error('❌ Backend connection failed:', err);
+      setIsConnected(false);
+      setError('Cannot connect to backend. Make sure it\'s running on port 3001');
     }
-  }, [input, isLoading, focusInput]);
-
-  // ============================================
-  // 🔥 Format Search Results
-  // ============================================
-  const formatSearchResults = (results) => {
-    if (!results || results.length === 0) {
-      return 'No results found. Please try a different query.';
-    }
-    
-    let formatted = `🔍 **Search Results for your query:**\n\n`;
-    
-    results.forEach((result, index) => {
-      const title = result.title || 'Untitled';
-      const content = result.content || 'No description available';
-      
-      formatted += `### ${index + 1}. ${title}\n`;
-      formatted += `📝 ${content}\n\n`;
-    });
-    
-    return formatted;
   };
+    
+  checkConnection();
+  const interval = setInterval(checkConnection, 30000);
+  return () => clearInterval(interval);
+}, []);
+
+const handleSend = useCallback(async (e) => {
+  e?.preventDefault();
+  
+  if (!input.trim() || isLoading) return;
+  
+  const userMessage = input.trim();
+  setInput('');
+  setError(null);
+  
+  setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
+  setIsLoading(true);
+  
+  try {
+    console.log('🔍 Calling web search for:', userMessage);
+    const response = await webSearch(userMessage, 5);
+    
+    console.log('📥 Web search response:', response);
+    
+    if (response.success && response.results) {
+      const formattedResults = formatSearchResults(response.results);
+      setMessages(prev => [...prev, { 
+        role: 'assistant', 
+        content: formattedResults,
+        results: response.results
+      }]);
+    } else {
+      setError(response.error || 'Failed to get search results');
+    }
+  } catch (err) {
+    console.error('❌ Search error:', err);
+    setError(err.error || err.message || 'An error occurred');
+  } finally {
+    setIsLoading(false);
+    // ✅ Focus input after response is displayed
+    focusInput();  // <-- ADD THIS LINE
+  }
+}, [input, isLoading, focusInput]);  // <-- ADD focusInput to dependencies
 
   const handleKeyDown = useCallback((e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -223,30 +164,31 @@ function App() {
     }
   }, [handleSend]);
 
-  const handleClearConversation = useCallback(async () => {
-    if (messages.length === 0) return;
-    
-    if (conversationId) {
-      try {
-        await clearConversation(conversationId);
-      } catch (err) {
-        console.error('Clear error:', err);
-      }
+  // FIXED: Clear conversation handler with proper state management
+const handleClearConversation = useCallback(async () => {
+  if (messages.length === 0) return;
+  
+  if (conversationId) {
+    try {
+      await clearConversation(conversationId);
+    } catch (err) {
+      console.error('Clear error:', err);
     }
-    
-    setMessages([]);
-    setConversationId(null);
-    setError(null);
-    // ✅ Focus input after clearing
-    focusInput();
-  }, [conversationId, messages.length, focusInput]);
+  }
+  
+  setMessages([]);
+  setConversationId(null);
+  setError(null);
+  // ✅ Focus input after clearing
+  focusInput();  // <-- ADD THIS LINE
+}, [conversationId, messages.length, focusInput]);  // <-- ADD focusInput to dependencies
 
   const setSuggestion = (text) => {
     setInput(text);
-    // ✅ Focus input after setting suggestion
-    focusInput();
+    inputRef.current?.focus();
   };
 
+  // Determine if delete button should be disabled
   const isDeleteDisabled = messages.length === 0;
 
   return (
@@ -298,31 +240,20 @@ function App() {
               <Message key={index} message={msg} />
             ))
           )}
-          
           {isLoading && (
-            <div className="thinking-container">
-              <div className="thinking-bubble">
-                <div className="thinking-avatar">
-                  <FaRobot />
-                </div>
-                <div className="thinking-content">
-                  <div className="thinking-text">
-                    <span>🔍 Searching the web...</span>
-                  </div>
-                  <div className="thinking-subtext">
-                    <span className="sparkle">✨</span>
-                    <span>Finding the best results for you...</span>
-                  </div>
-                  <div className="thinking-progress">
-                    <div className="progress-bar">
-                      <div className="progress-fill"></div>
-                    </div>
-                  </div>
+            <div className="typing-indicator-wrapper">
+              <div className="message-avatar">
+                <FaRobot />
+              </div>
+              <div className="message-content">
+                <div className="typing-indicator">
+                  <span></span>
+                  <span></span>
+                  <span></span>
                 </div>
               </div>
             </div>
           )}
-          
           <div ref={messagesEndRef} />
         </div>
 
