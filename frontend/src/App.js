@@ -17,7 +17,6 @@ const Message = React.memo(({ message }) => {
         {isUser ? <FaUser /> : <FaRobot />}
       </div>
       <div className="message-content">
-        {/* AI Response Watermark - Only for assistant messages */}
         {!isUser && (
           <div className="ai-watermark">
             <img src={logo} alt="MagnifiScience" className="watermark-logo" />
@@ -88,6 +87,13 @@ function App() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // ✅ FOCUS INPUT AFTER MESSAGES UPDATE (NEW)
+  useEffect(() => {
+    if (!isLoading && inputRef.current) {
+      inputRef.current.focus();
+    }
+  }, [messages, isLoading]);
+
   // Health check
   useEffect(() => {
     const checkConnection = async () => {
@@ -129,7 +135,6 @@ function App() {
     setInput('');
     setError(null);
     
-    // Add user message
     setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
     setIsLoading(true);
     
@@ -161,7 +166,6 @@ function App() {
       setError(err.error || err.message || 'An error occurred');
     } finally {
       setIsLoading(false);
-      inputRef.current?.focus();
     }
   }, [input, isLoading, conversationId, settings]);
 
@@ -186,6 +190,7 @@ function App() {
     setMessages([]);
     setConversationId(null);
     setError(null);
+    // ✅ Focus after clearing
     inputRef.current?.focus();
   }, [conversationId, messages.length]);
 
@@ -250,7 +255,6 @@ function App() {
             ))
           )}
           
-          {/* Show loading indicator */}
           {isLoading && (
             <div className="thinking-container">
               <div className="thinking-bubble">

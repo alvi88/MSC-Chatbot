@@ -869,4 +869,16 @@ body {
     font-size: 8px;
     padding: 1px 4px;
   }
+
+    /* --- Input Focus Enhancement --- */
+  .input-container textarea:focus {
+    outline: none;
+    border-color: #F5B041;
+    box-shadow: 0 0 0 3px rgba(245, 176, 65, 0.2);
+  }
+
+  /* Smooth transition for focus */
+  .input-container textarea {
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  }
 }
