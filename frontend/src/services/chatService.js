@@ -1,11 +1,11 @@
 import axios from 'axios';
 
 // Use relative URL - proxy will handle it
-const API_BASE = '/api';
+const API_BASE = '/api/';
 
 const api = axios.create({
   baseURL: API_BASE,
-  timeout: 60000,
+  timeout: 300000, // 5 minutes timeout for long responses
   headers: {
     'Content-Type': 'application/json'
   }
@@ -34,16 +34,25 @@ api.interceptors.response.use(
   }
 );
 
+// ============================================
+// ✅ EXPORT: Health check
+// ============================================
 export const getHealth = async () => {
   const response = await api.get('/health');
   return response.data;
 };
 
+// ============================================
+// ✅ EXPORT: Simple send message (No Streaming)
+// ============================================
 export const sendMessage = async (data) => {
   const response = await api.post('/chat', data);
   return response.data;
 };
 
+// ============================================
+// ✅ EXPORT: Conversation management
+// ============================================
 export const getConversations = async () => {
   const response = await api.get('/conversations');
   return response.data;

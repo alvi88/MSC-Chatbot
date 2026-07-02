@@ -1,7 +1,4 @@
-version: '3.8'
-
 services:
-  # ===== BACKEND SERVICE =====
   backend:
     build:
       context: .
@@ -12,23 +9,20 @@ services:
       - "3001:3001"
     environment:
       - NODE_ENV=production
-      - OLLAMA_HOST=http://ollama:11434
+      - OLLAMA_HOST=https://ollama.com
+      - OLLAMA_API_KEY=${OLLAMA_API_KEY}
       - PORT=3001
-      # 👇 Default model (change here to switch models)
-      - DEFAULT_MODEL=qwen3:4b
     env_file:
       - backend/.env
     networks:
       - msc-network
-    depends_on:
-      - ollama
+    # ✅ Add healthcheck
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:3001/api/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
       interval: 30s
       timeout: 10s
       retries: 3
 
-  # ===== FRONTEND SERVICE =====
   frontend:
     build:
       context: .
@@ -38,38 +32,11 @@ services:
     ports:
       - "80:80"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy  # ✅ Wait for backend to be healthy
     networks:
       - msc-network
 
-  # ===== OLLAMA SERVICE =====
-  ollama:
-    image: ollama/ollama:latest
-    container_name: msc-ollama
-    restart: unless-stopped
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama_data:/root/.ollama
-    environment:
-      - OLLAMA_HOST=0.0.0.0
-    networks:
-      - msc-network
-    # 👇 Uncomment if you have NVIDIA GPU
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: 1
-    #           capabilities: [gpu]
-
-# ===== NETWORKS =====
 networks:
   msc-network:
     driver: bridge
-
-# ===== VOLUMES =====
-volumes:
-  ollama_data:
-    driver: local

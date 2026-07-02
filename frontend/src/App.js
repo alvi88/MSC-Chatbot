@@ -55,7 +55,7 @@ const Message = React.memo(({ message }) => {
         
         {message.usage && (
           <div className="message-usage">
-            <small>⚡ {message.usage.total_tokens} tokens</small>
+            <small>⚡ {message.usage.prompt_tokens} tokens</small>
           </div>
         )}
       </div>
@@ -64,21 +64,21 @@ const Message = React.memo(({ message }) => {
 });
 
 function App() {
+  // ===== STATE DECLARATIONS =====
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [conversationId, setConversationId] = useState(null);
   const [error, setError] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
-  const [defaultModel, setDefaultModel] = useState('qwen3:4b');
+  const [defaultModel, setDefaultModel] = useState('phi3:3.8b');
 
-  // Fixed settings
-  const settings = {
-    model: defaultModel,
-    temperature: 1,
-    maxTokens: 4096,
+  const [settings, setSettings] = useState({
+    model: 'qwen3-coder:480b-cloud',
+    temperature: 0.7,
+    maxTokens: 512,
     systemPrompt: 'You are an experienced and helpful science communicator at the MagnifiScience Centre.'
-  };
+  });
 
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
@@ -88,37 +88,38 @@ function App() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Update your health check
-useEffect(() => {
-  const checkConnection = async () => {
-    console.log('🔍 Checking backend connection...');
-    try {
-      const health = await getHealth();
-      console.log('✅ Backend health check successful:', health);
-      setIsConnected(true);
-      setError(null);
-      
-      // Get the default model from backend
-      if (health.defaultModel) {
-        setDefaultModel(health.defaultModel);
-        // Update settings with the default model
-        setSettings(prev => ({
-          ...prev,
-          model: health.defaultModel
-        }));
+  // Health check
+  useEffect(() => {
+    const checkConnection = async () => {
+      console.log('🔍 Checking backend connection...');
+      try {
+        const health = await getHealth();
+        console.log('✅ Backend health check successful:', health);
+        setIsConnected(true);
+        setError(null);
+        
+        if (health.defaultModel) {
+          setDefaultModel(health.defaultModel);
+          setSettings(prev => ({
+            ...prev,
+            model: health.defaultModel
+          }));
+        }
+      } catch (err) {
+        console.error('❌ Backend connection failed:', err);
+        setIsConnected(false);
+        setError('Cannot connect to backend. Make sure it\'s running on port 3001');
       }
-    } catch (err) {
-      console.error('❌ Backend connection failed:', err);
-      setIsConnected(false);
-      setError('Cannot connect to backend. Make sure it\'s running on port 3001');
-    }
-  };
+    };
     
-  checkConnection();
-  const interval = setInterval(checkConnection, 30000);
-  return () => clearInterval(interval);
-}, []);
+    checkConnection();
+    const interval = setInterval(checkConnection, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
+  // ============================================
+  // 🔥 HANDLE SEND - SIMPLE (No Streaming)
+  // ============================================
   const handleSend = useCallback(async (e) => {
     e?.preventDefault();
     
@@ -128,6 +129,7 @@ useEffect(() => {
     setInput('');
     setError(null);
     
+    // Add user message
     setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
     setIsLoading(true);
     
@@ -170,9 +172,8 @@ useEffect(() => {
     }
   }, [handleSend]);
 
-  // FIXED: Clear conversation handler with proper state management
   const handleClearConversation = useCallback(async () => {
-    if (messages.length === 0) return; // Don't do anything if already empty
+    if (messages.length === 0) return;
     
     if (conversationId) {
       try {
@@ -182,12 +183,9 @@ useEffect(() => {
       }
     }
     
-    // Clear all state
     setMessages([]);
     setConversationId(null);
     setError(null);
-    
-    // Focus input after clearing
     inputRef.current?.focus();
   }, [conversationId, messages.length]);
 
@@ -196,7 +194,6 @@ useEffect(() => {
     inputRef.current?.focus();
   };
 
-  // Determine if delete button should be disabled
   const isDeleteDisabled = messages.length === 0;
 
   return (
@@ -238,6 +235,10 @@ useEffect(() => {
                 <button onClick={() => setSuggestion('Explain gravity like I\'m 5')}>🌍 Gravity</button>
                 <button onClick={() => setSuggestion('How do volcanoes erupt?')}>🌋 Volcanoes</button>
                 <button onClick={() => setSuggestion('Tell me a fun science fact')}>✨ Fun Fact</button>
+                <button onClick={() => setSuggestion('What are software?')}>💻 Software</button>
+                <button onClick={() => setSuggestion('Which are the 10 highiest mountain peaks?')}>⛰️ Mountains</button>
+                <button onClick={() => setSuggestion('How many oceans do we have in the world? and what are the names ?')}>🌊 Oceans</button>
+                <button onClick={() => setSuggestion('How many planets are there in our solar system?')}>🌎🌕☄️🪐🚀 Planets</button>
               </div>
               <p style={{ fontSize: '14px', color: '#555', marginTop: '16px' }}>
                 {isConnected ? '🔬 Start exploring science!' : '⏳ Connecting to the science lab...'}
@@ -248,20 +249,29 @@ useEffect(() => {
               <Message key={index} message={msg} />
             ))
           )}
+          
+          {/* Show loading indicator */}
           {isLoading && (
-            <div className="typing-indicator-wrapper">
-              <div className="message-avatar">
-                <FaRobot />
-              </div>
-              <div className="message-content">
-                <div className="typing-indicator">
-                  <span></span>
-                  <span></span>
-                  <span></span>
+            <div className="thinking-container">
+              <div className="thinking-bubble">
+                <div className="thinking-avatar">
+                  <FaRobot />
+                </div>
+                <div className="thinking-content">
+                  <div className="thinking-subtext">
+                    <span className="sparkle">✨</span>
+                    <span>MagnifiScience AI is analyzing your question ...</span>
+                  </div>
+                  <div className="thinking-progress">
+                    <div className="progress-bar">
+                      <div className="progress-fill"></div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
           )}
+          
           <div ref={messagesEndRef} />
         </div>
 
