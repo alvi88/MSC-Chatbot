@@ -235,6 +235,10 @@ function App() {
                 <button onClick={() => setSuggestion('Explain gravity like I\'m 5')}>🌍 Gravity</button>
                 <button onClick={() => setSuggestion('How do volcanoes erupt?')}>🌋 Volcanoes</button>
                 <button onClick={() => setSuggestion('Tell me a fun science fact')}>✨ Fun Fact</button>
+                <button onClick={() => setSuggestion('What are software?')}>💻 Software</button>
+                <button onClick={() => setSuggestion('Which are the 10 highiest mountain peaks?')}>⛰️ Mountains</button>
+                <button onClick={() => setSuggestion('How many oceans do we have in the world? and what are the names ?')}>🌊 Oceans</button>
+                <button onClick={() => setSuggestion('How many planets are there in our solar system?')}>🌎🌕☄️🪐🚀 Planets</button>
               </div>
               <p style={{ fontSize: '14px', color: '#555', marginTop: '16px' }}>
                 {isConnected ? '🔬 Start exploring science!' : '⏳ Connecting to the science lab...'}
@@ -256,7 +260,7 @@ function App() {
                 <div className="thinking-content">
                   <div className="thinking-subtext">
                     <span className="sparkle">✨</span>
-                    <span>MagnifiScience AI is analyzing your question...</span>
+                    <span>MagnifiScience AI is analyzing your question ...</span>
                   </div>
                   <div className="thinking-progress">
                     <div className="progress-bar">
