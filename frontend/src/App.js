@@ -4,13 +4,12 @@ import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import './App.css';
-import { sendMessageStream, getHealth, clearConversation } from './services/chatService';
+import { sendMessage, getHealth, clearConversation } from './services/chatService';
 import logo from './logo.png';
 
-// Message component with watermark and streaming support
+// Message component with watermark
 const Message = React.memo(({ message }) => {
   const isUser = message.role === 'user';
-  const isStreaming = message.isStreaming;
   
   return (
     <div className={`message ${isUser ? 'user-message' : 'assistant-message'}`}>
@@ -29,50 +28,34 @@ const Message = React.memo(({ message }) => {
         {isUser ? (
           <p>{message.content}</p>
         ) : (
-          <>
-            {message.content ? (
-              <>
-                <ReactMarkdown
-                  components={{
-                    code({ node, inline, className, children, ...props }) {
-                      const match = /language-(\w+)/.exec(className || '');
-                      return !inline && match ? (
-                        <SyntaxHighlighter
-                          style={vscDarkPlus}
-                          language={match[1]}
-                          PreTag="div"
-                          {...props}
-                        >
-                          {String(children).replace(/\n$/, '')}
-                        </SyntaxHighlighter>
-                      ) : (
-                        <code className={className} {...props}>
-                          {children}
-                        </code>
-                      );
-                    }
-                  }}
-                >
-                  {message.content}
-                </ReactMarkdown>
-                {isStreaming && <span className="streaming-cursor">▋</span>}
-              </>
-            ) : (
-              <div className="thinking-indicator">
-                <span>Thinking</span>
-                <div className="dots">
-                  <span></span>
-                  <span></span>
-                  <span></span>
-                </div>
-              </div>
-            )}
-          </>
+          <ReactMarkdown
+            components={{
+              code({ node, inline, className, children, ...props }) {
+                const match = /language-(\w+)/.exec(className || '');
+                return !inline && match ? (
+                  <SyntaxHighlighter
+                    style={vscDarkPlus}
+                    language={match[1]}
+                    PreTag="div"
+                    {...props}
+                  >
+                    {String(children).replace(/\n$/, '')}
+                  </SyntaxHighlighter>
+                ) : (
+                  <code className={className} {...props}>
+                    {children}
+                  </code>
+                );
+              }
+            }}
+          >
+            {message.content}
+          </ReactMarkdown>
         )}
         
         {message.usage && (
           <div className="message-usage">
-            <small>⚡ {message.usage.total_tokens} tokens</small>
+            <small>⚡ {message.usage.prompt_tokens} tokens</small>
           </div>
         )}
       </div>
@@ -135,7 +118,7 @@ function App() {
   }, []);
 
   // ============================================
-  // 🔥 HANDLE SEND WITH STREAMING
+  // 🔥 HANDLE SEND - SIMPLE (No Streaming)
   // ============================================
   const handleSend = useCallback(async (e) => {
     e?.preventDefault();
@@ -150,79 +133,34 @@ function App() {
     setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
     setIsLoading(true);
     
-    // Create a placeholder for the assistant's response
-    const assistantId = Date.now();
-    setMessages(prev => [...prev, { 
-      role: 'assistant', 
-      content: '',
-      id: assistantId,
-      isStreaming: true
-    }]);
-    
     try {
-      console.log('📤 Sending streaming message to backend...');
-      let fullResponse = '';
-      let hasReceivedContent = false;
+      console.log('📤 Sending message to backend...');
+      const response = await sendMessage({
+        message: userMessage,
+        conversationId,
+        model: settings.model,
+        temperature: settings.temperature,
+        maxTokens: settings.maxTokens,
+        systemPrompt: settings.systemPrompt
+      });
       
-      await sendMessageStream(
-        {
-          message: userMessage,
-          conversationId,
-          model: settings.model,
-          temperature: settings.temperature,
-          maxTokens: settings.maxTokens,
-          systemPrompt: settings.systemPrompt
-        },
-        // onChunk - called for each piece of the response
-        (chunk) => {
-          hasReceivedContent = true;
-          fullResponse += chunk;
-          setMessages(prev => prev.map(msg => 
-            msg.id === assistantId 
-              ? { ...msg, content: fullResponse }
-              : msg
-          ));
-        },
-        // onComplete - called when response is complete
-        (newConversationId, totalTokens) => {
-          console.log('✅ Streaming complete');
-          setConversationId(newConversationId);
-          setMessages(prev => prev.map(msg => 
-            msg.id === assistantId 
-              ? { 
-                  ...msg, 
-                  isStreaming: false,
-                  usage: totalTokens ? { total_tokens: totalTokens } : undefined
-                }
-              : msg
-          ));
-          setIsLoading(false);
-        },
-        // onError - called if there's an error
-        (error) => {
-          console.error('❌ Stream error:', error);
-          setError(error || 'An error occurred');
-          // Remove the placeholder message if no content was received
-          if (!hasReceivedContent) {
-            setMessages(prev => prev.filter(msg => msg.id !== assistantId));
-          } else {
-            // Keep what we have but mark as not streaming
-            setMessages(prev => prev.map(msg => 
-              msg.id === assistantId 
-                ? { ...msg, isStreaming: false }
-                : msg
-            ));
-          }
-          setIsLoading(false);
-        }
-      );
+      console.log('📥 Response received:', response);
       
+      if (response.success) {
+        setConversationId(response.conversationId);
+        setMessages(prev => [...prev, { 
+          role: 'assistant', 
+          content: response.reply,
+          usage: response.usage
+        }]);
+      } else {
+        setError('Failed to get response');
+      }
     } catch (err) {
       console.error('❌ Send error:', err);
-      setError(err.message || 'An error occurred');
-      setMessages(prev => prev.filter(msg => msg.id !== assistantId));
-      setIsLoading(false);
+      setError(err.error || err.message || 'An error occurred');
     } finally {
+      setIsLoading(false);
       inputRef.current?.focus();
     }
   }, [input, isLoading, conversationId, settings]);
@@ -307,21 +245,29 @@ function App() {
               <Message key={index} message={msg} />
             ))
           )}
-          {/* Show loading indicator when waiting for first token */}
-          {isLoading && !messages.some(msg => msg.isStreaming) && (
-            <div className="typing-indicator-wrapper">
-              <div className="message-avatar">
-                <FaRobot />
-              </div>
-              <div className="message-content">
-                <div className="typing-indicator">
-                  <span></span>
-                  <span></span>
-                  <span></span>
+          
+          {/* Show loading indicator */}
+          {isLoading && (
+            <div className="thinking-container">
+              <div className="thinking-bubble">
+                <div className="thinking-avatar">
+                  <FaRobot />
+                </div>
+                <div className="thinking-content">
+                  <div className="thinking-subtext">
+                    <span className="sparkle">✨</span>
+                    <span>MagnifiScience AI is analyzing your question...</span>
+                  </div>
+                  <div className="thinking-progress">
+                    <div className="progress-bar">
+                      <div className="progress-fill"></div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
           )}
+          
           <div ref={messagesEndRef} />
         </div>
 

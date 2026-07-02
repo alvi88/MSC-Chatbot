@@ -11,24 +11,40 @@ const PORT = process.env.PORT || 3001;
 // ============================================
 // 🔥 OLLAMA CLOUD CONFIGURATION
 // ============================================
-// Use cloud endpoint instead of localhost
-const OLLAMA_HOST = process.env.OLLAMA_HOST || 'https://ollama.com/api';
+const OLLAMA_HOST = process.env.OLLAMA_HOST || 'https://ollama.com';
 const OLLAMA_API_KEY = process.env.OLLAMA_API_KEY;
+const DEFAULT_MODEL = process.env.DEFAULT_MODEL || 'qwen3-coder:480b-cloud';
 
-// Cloud model names (append -cloud suffix)
-const DEFAULT_MODEL = process.env.DEFAULT_MODEL || 'gpt-oss:120b-cloud';
+const TAGS_URL = `${OLLAMA_HOST}/api/tags`;
+const CHAT_URL = `${OLLAMA_HOST}/api/chat`;
 
-// Available cloud models [citation:1][citation:9]
+console.log('🔑 API Key loaded:', !!OLLAMA_API_KEY);
+console.log('🔗 API Host:', OLLAMA_HOST);
+console.log('📡 Chat URL:', CHAT_URL);
+
+if (!OLLAMA_API_KEY) {
+  console.error('❌ ERROR: OLLAMA_API_KEY is not set!');
+  console.error('Get your key from: https://ollama.com/settings/keys');
+}
+
 const AVAILABLE_MODELS = [
-  'gpt-oss:120b-cloud',
-  'gpt-oss:20b-cloud',
   'qwen3-coder:480b-cloud',
+  'gpt-oss:120b-cloud',
   'deepseek-v3.1:671b-cloud',
   'glm-4.6:cloud',
-  'kimi-k2.6'
+  'kimi-k2.6',
+  'mistral-large-3:675b',
+  'gemma3:27b'
 ];
 
-// CORS
+// ============================================
+// 📂 CONVERSATION STORAGE
+// ============================================
+const conversations = new Map();
+
+// ============================================
+// 🛠️ MIDDLEWARE
+// ============================================
 app.use(cors({
   origin: '*',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -37,48 +53,52 @@ app.use(cors({
 
 app.use(express.json());
 
+app.use((req, res, next) => {
+  console.log(`📨 ${req.method} ${req.url}`);
+  next();
+});
+
 // ============================================
-// 🔥 HEALTH CHECK (Cloud Version)
+// 🔥 HEALTH CHECK
 // ============================================
 app.get('/api/health', async (req, res) => {
   console.log('✅ Health check requested');
   
   try {
-    // Check if Ollama Cloud API is accessible
-    const ollamaHealth = await axios.get('https://ollama.com/api/tags', {
+    const response = await axios.get(TAGS_URL, {
       headers: {
         'Authorization': `Bearer ${OLLAMA_API_KEY}`
       }
     });
     
-    const installedModels = ollamaHealth.data.models?.map(m => m.name) || [];
+    const models = response.data?.models?.map(m => m.name) || [];
     
     res.json({ 
       status: 'ok', 
       timestamp: new Date().toISOString(),
       ollama: 'cloud-connected',
-      models: installedModels.length > 0 ? installedModels : AVAILABLE_MODELS,
+      models: models.length > 0 ? models : AVAILABLE_MODELS,
       defaultModel: DEFAULT_MODEL,
       apiType: 'ollama-cloud'
     });
   } catch (error) {
-    console.error('❌ Ollama Cloud connection failed:', error.message);
+    console.error('❌ Health check failed:', error.message);
     res.json({ 
       status: 'degraded', 
       timestamp: new Date().toISOString(),
       ollama: 'cloud-disconnected',
       models: AVAILABLE_MODELS,
       defaultModel: DEFAULT_MODEL,
-      error: 'Check your OLLAMA_API_KEY'
+      error: error.message || 'Check your OLLAMA_API_KEY'
     });
   }
 });
 
 // ============================================
-// 🔥 CHAT ENDPOINT (Ollama Cloud with Streaming)
+// 🔥 CHAT ENDPOINT - SIMPLE (No Streaming)
 // ============================================
 app.post('/api/chat', async (req, res) => {
-  console.log('💬 Chat request received (Ollama Cloud)');
+  console.log('💬 Chat request received');
   
   try {
     const { 
@@ -86,7 +106,7 @@ app.post('/api/chat', async (req, res) => {
       conversationId = null, 
       model = DEFAULT_MODEL,
       temperature = 0.7,
-      maxTokens = 1024,
+      maxTokens = 512,
       systemPrompt = 'You are an experienced and helpful science communicator at the MagnifiScience Centre.'
     } = req.body;
 
@@ -97,25 +117,31 @@ app.post('/api/chat', async (req, res) => {
       return res.status(400).json({ error: 'Message is required' });
     }
 
-    // Set up streaming headers
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-    res.setHeader('X-Accel-Buffering', 'no');
+    // Get or create conversation history
+    let history = [];
+    if (conversationId && conversations.has(conversationId)) {
+      history = conversations.get(conversationId);
+    }
+
+    // Prepare messages for Ollama API
+    const messages = [
+      { role: 'system', content: systemPrompt },
+      ...history,
+      { role: 'user', content: message }
+    ];
+
+    console.log(`📤 Sending ${messages.length} messages to Ollama`);
 
     // ============================================
-    // 🔥 CALL OLLAMA CLOUD API
+    // CALL OLLAMA CLOUD API - NO STREAMING
     // ============================================
     const response = await axios({
       method: 'POST',
-      url: `${OLLAMA_HOST}/chat`,
+      url: CHAT_URL,
       data: {
         model: model,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: message }
-        ],
-        stream: true,
+        messages: messages,
+        stream: false,  // ✅ No streaming
         options: {
           temperature: temperature,
           num_predict: maxTokens
@@ -125,50 +151,45 @@ app.post('/api/chat', async (req, res) => {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${OLLAMA_API_KEY}`
       },
-      responseType: 'stream',
-      timeout: 600000
+      timeout: 300000 // 5 minutes
     });
 
-    let fullResponse = '';
+    // Extract the assistant's reply from Ollama response
+    const assistantReply = response.data.message?.content || '';
+    
+    // Get token usage
+    const usage = {
+      total_tokens: response.data.total_duration || 0,
+      prompt_tokens: response.data.prompt_eval_count || 0,
+      completion_tokens: response.data.eval_count || 0
+    };
 
-    // Stream the response to the client
-    response.data.on('data', (chunk) => {
-      try {
-        const lines = chunk.toString().split('\n').filter(line => line.trim() !== '');
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const data = JSON.parse(line.slice(6));
-            if (data.message && data.message.content) {
-              const content = data.message.content;
-              fullResponse += content;
-              res.write(`data: ${JSON.stringify({ content: content, done: false })}\n\n`);
-            }
-            if (data.done) {
-              res.write(`data: ${JSON.stringify({ 
-                done: true, 
-                conversationId: conversationId || `conv_${Date.now()}`,
-                total_tokens: data.total_duration || 0 
-              })}\n\n`);
-            }
-          }
-        }
-      } catch (err) {
-        console.error('Stream parsing error:', err);
-      }
-    });
+    console.log(`✅ Received reply: ${assistantReply?.substring(0, 50)}...`);
 
-    response.data.on('end', () => {
-      res.end();
-    });
+    // Store conversation
+    const newConversationId = conversationId || `conv_${Date.now()}`;
+    if (!conversations.has(newConversationId)) {
+      conversations.set(newConversationId, []);
+    }
+    conversations.get(newConversationId).push(
+      { role: 'user', content: message },
+      { role: 'assistant', content: assistantReply }
+    );
 
-    response.data.on('error', (err) => {
-      console.error('Stream error:', err);
-      res.write(`data: ${JSON.stringify({ error: err.message, done: true })}\n\n`);
-      res.end();
+    // Send response
+    res.json({
+      success: true,
+      conversationId: newConversationId,
+      reply: assistantReply,
+      usage: usage,
+      model: model,
+      apiType: 'ollama-cloud'
     });
 
   } catch (error) {
     console.error('❌ Chat error:', error.message);
+    console.error('Status:', error.response?.status);
+    console.error('Data:', error.response?.data);
     
     if (error.response?.status === 401) {
       return res.status(401).json({ 
@@ -176,20 +197,88 @@ app.post('/api/chat', async (req, res) => {
       });
     }
     
-    res.write(`data: ${JSON.stringify({ 
-      error: error.response?.data?.error || error.message, 
-      done: true 
-    })}\n\n`);
-    res.end();
+    if (error.code === 'ECONNREFUSED') {
+      return res.status(503).json({ 
+        error: 'Cannot connect to Ollama Cloud. Please check your internet connection.' 
+      });
+    }
+
+    res.status(500).json({ 
+      error: error.response?.data?.error || error.message 
+    });
   }
 });
 
-// ... (conversation endpoints remain the same) ...
+// ============================================
+// 📂 CONVERSATION ENDPOINTS
+// ============================================
 
+app.get('/api/conversations', (req, res) => {
+  const allConversations = Array.from(conversations.keys()).map(id => ({
+    id,
+    messageCount: conversations.get(id).length,
+    lastMessage: conversations.get(id)[conversations.get(id).length - 1]?.content || ''
+  }));
+  res.json({ success: true, conversations: allConversations });
+});
+
+app.get('/api/conversations/:id', (req, res) => {
+  const { id } = req.params;
+  if (conversations.has(id)) {
+    res.json({
+      success: true,
+      conversationId: id,
+      messages: conversations.get(id)
+    });
+  } else {
+    res.status(404).json({ error: 'Conversation not found' });
+  }
+});
+
+app.delete('/api/conversations/:id', (req, res) => {
+  const { id } = req.params;
+  if (conversations.has(id)) {
+    conversations.delete(id);
+    res.json({ success: true, message: 'Conversation cleared' });
+  } else {
+    res.status(404).json({ error: 'Conversation not found' });
+  }
+});
+
+app.delete('/api/conversations', (req, res) => {
+  conversations.clear();
+  res.json({ success: true, message: 'All conversations cleared' });
+});
+
+// ============================================
+// 🌐 ROOT
+// ============================================
+app.get('/', (req, res) => {
+  res.json({
+    name: 'MagnifiScience Chatbot API',
+    version: '1.0.0',
+    status: 'running',
+    endpoints: {
+      health: 'GET /api/health',
+      chat: 'POST /api/chat',
+      conversations: 'GET /api/conversations'
+    }
+  });
+});
+
+// ============================================
+// 🚀 START
+// ============================================
 app.listen(PORT, () => {
-  console.log(`\n🚀 MagnifiScience Chat Backend running on http://localhost:${PORT}`);
+  console.log(`\n${'='.repeat(50)}`);
+  console.log(`🚀 MagnifiScience Chat Backend`);
+  console.log(`${'='.repeat(50)}`);
+  console.log(`📡 Running on: http://localhost:${PORT}`);
   console.log(`☁️  Ollama Cloud API: ${OLLAMA_HOST}`);
   console.log(`📋 Default model: ${DEFAULT_MODEL}`);
   console.log(`🔑 API Key set: ${!!OLLAMA_API_KEY}`);
-  console.log(`\n✅ Test the backend at: http://localhost:${PORT}/api/health\n`);
+  console.log(`\n✅ Test: http://localhost:${PORT}/api/health`);
+  console.log(`${'='.repeat(50)}\n`);
 });
+
+export default app;
