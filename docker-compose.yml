@@ -1,5 +1,4 @@
 services:
-  # ===== BACKEND SERVICE =====
   backend:
     build:
       context: .
@@ -10,21 +9,14 @@ services:
       - "3001:3001"
     environment:
       - NODE_ENV=production
-      - OLLAMA_HOST=https://ollama.com/api
+      - OLLAMA_HOST=https://ollama.com
       - OLLAMA_API_KEY=${OLLAMA_API_KEY}
       - PORT=3001
-      - DEFAULT_MODEL=qwen3-coder:480b-cloud
     env_file:
       - backend/.env
     networks:
       - msc-network
-    healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3001/api/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
 
-  # ===== FRONTEND SERVICE =====
   frontend:
     build:
       context: .
@@ -37,13 +29,13 @@ services:
       - backend
     networks:
       - msc-network
+    # ✅ Add dependency verification
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost/"]
+      test: ["CMD", "curl", "-f", "http://localhost/api/health"]
       interval: 30s
       timeout: 10s
-      retries: 3
+      retries: 5
 
-# ===== NETWORKS =====
 networks:
   msc-network:
     driver: bridge
