@@ -4,10 +4,10 @@ import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import './App.css';
-import { sendMessage, getHealth, clearConversation } from './services/chatService';
+import { webSearch, getHealth, clearConversation } from './services/chatService';
 import logo from './logo.png';
 
-// Message component with watermark
+// Message component with watermark and search results
 const Message = React.memo(({ message }) => {
   const isUser = message.role === 'user';
   
@@ -17,7 +17,6 @@ const Message = React.memo(({ message }) => {
         {isUser ? <FaUser /> : <FaRobot />}
       </div>
       <div className="message-content">
-        {/* AI Response Watermark - Only for assistant messages */}
         {!isUser && (
           <div className="ai-watermark">
             <img src={logo} alt="MagnifiScience" className="watermark-logo" />
@@ -28,36 +27,61 @@ const Message = React.memo(({ message }) => {
         {isUser ? (
           <p>{message.content}</p>
         ) : (
-          <ReactMarkdown
-            components={{
-              code({ node, inline, className, children, ...props }) {
-                const match = /language-(\w+)/.exec(className || '');
-                return !inline && match ? (
-                  <SyntaxHighlighter
-                    style={vscDarkPlus}
-                    language={match[1]}
-                    PreTag="div"
-                    {...props}
-                  >
-                    {String(children).replace(/\n$/, '')}
-                  </SyntaxHighlighter>
-                ) : (
-                  <code className={className} {...props}>
-                    {children}
-                  </code>
-                );
-              }
-            }}
-          >
-            {message.content}
-          </ReactMarkdown>
-        )}
-        
-        {message.usage && (
-          <div className="message-usage">
-            <small>⚡ {message.usage.prompt_tokens} tokens</small>
+          <div className="web-search-results">
+            <ReactMarkdown
+              components={{
+                code({ node, inline, className, children, ...props }) {
+                  const match = /language-(\w+)/.exec(className || '');
+                  return !inline && match ? (
+                    <SyntaxHighlighter
+                      style={vscDarkPlus}
+                      language={match[1]}
+                      PreTag="div"
+                      {...props}
+                    >
+                      {String(children).replace(/\n$/, '')}
+                    </SyntaxHighlighter>
+                  ) : (
+                    <code className={className} {...props}>
+                      {children}
+                    </code>
+                  );
+                }
+              }}
+            >
+              {message.content}
+            </ReactMarkdown>
+            
+            {message.results && message.results.length > 0 && (
+              <div className="search-sources">
+                <h4>📚 Sources:</h4>
+                <ul>
+                  {message.results.map((result, index) => (
+                    <li key={index}>
+                      <a href={result.url} target="_blank" rel="noopener noreferrer">
+                        {result.title || result.url}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
         )}
+        
+        <div className="message-footer">
+          {message.usage && (
+            <div className="message-usage">
+              <small>⚡ {message.usage.prompt_tokens || 0} tokens</small>
+            </div>
+          )}
+          
+          {!isUser && message.results && message.results.length > 0 && (
+            <div className="message-usage search-stats">
+              <small>🔍 Found {message.results.length} results</small>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -118,7 +142,19 @@ function App() {
   }, []);
 
   // ============================================
-  // 🔥 HANDLE SEND - SIMPLE (No Streaming)
+  // 🔥 FOCUS INPUT HELPER
+  // ============================================
+  const focusInput = useCallback(() => {
+    // Small delay to ensure the DOM is updated
+    setTimeout(() => {
+      if (inputRef.current) {
+        inputRef.current.focus();
+      }
+    }, 50);
+  }, []);
+
+  // ============================================
+  // 🔥 HANDLE SEND - Web Search
   // ============================================
   const handleSend = useCallback(async (e) => {
     e?.preventDefault();
@@ -134,36 +170,51 @@ function App() {
     setIsLoading(true);
     
     try {
-      console.log('📤 Sending message to backend...');
-      const response = await sendMessage({
-        message: userMessage,
-        conversationId,
-        model: settings.model,
-        temperature: settings.temperature,
-        maxTokens: settings.maxTokens,
-        systemPrompt: settings.systemPrompt
-      });
+      console.log('🔍 Calling web search for:', userMessage);
+      const response = await webSearch(userMessage, 5);
       
-      console.log('📥 Response received:', response);
+      console.log('📥 Web search response:', response);
       
-      if (response.success) {
-        setConversationId(response.conversationId);
+      if (response.success && response.results) {
+        const formattedResults = formatSearchResults(response.results);
         setMessages(prev => [...prev, { 
           role: 'assistant', 
-          content: response.reply,
-          usage: response.usage
+          content: formattedResults,
+          results: response.results
         }]);
       } else {
-        setError('Failed to get response');
+        setError(response.error || 'Failed to get search results');
       }
     } catch (err) {
-      console.error('❌ Send error:', err);
+      console.error('❌ Search error:', err);
       setError(err.error || err.message || 'An error occurred');
     } finally {
       setIsLoading(false);
-      inputRef.current?.focus();
+      // ✅ Focus input after response is displayed
+      focusInput();
     }
-  }, [input, isLoading, conversationId, settings]);
+  }, [input, isLoading, focusInput]);
+
+  // ============================================
+  // 🔥 Format Search Results
+  // ============================================
+  const formatSearchResults = (results) => {
+    if (!results || results.length === 0) {
+      return 'No results found. Please try a different query.';
+    }
+    
+    let formatted = `🔍 **Search Results for your query:**\n\n`;
+    
+    results.forEach((result, index) => {
+      const title = result.title || 'Untitled';
+      const content = result.content || 'No description available';
+      
+      formatted += `### ${index + 1}. ${title}\n`;
+      formatted += `📝 ${content}\n\n`;
+    });
+    
+    return formatted;
+  };
 
   const handleKeyDown = useCallback((e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -186,12 +237,14 @@ function App() {
     setMessages([]);
     setConversationId(null);
     setError(null);
-    inputRef.current?.focus();
-  }, [conversationId, messages.length]);
+    // ✅ Focus input after clearing
+    focusInput();
+  }, [conversationId, messages.length, focusInput]);
 
   const setSuggestion = (text) => {
     setInput(text);
-    inputRef.current?.focus();
+    // ✅ Focus input after setting suggestion
+    focusInput();
   };
 
   const isDeleteDisabled = messages.length === 0;
@@ -235,10 +288,6 @@ function App() {
                 <button onClick={() => setSuggestion('Explain gravity like I\'m 5')}>🌍 Gravity</button>
                 <button onClick={() => setSuggestion('How do volcanoes erupt?')}>🌋 Volcanoes</button>
                 <button onClick={() => setSuggestion('Tell me a fun science fact')}>✨ Fun Fact</button>
-                <button onClick={() => setSuggestion('What are software?')}>💻 Software</button>
-                <button onClick={() => setSuggestion('Which are the 10 highiest mountain peaks?')}>⛰️ Mountains</button>
-                <button onClick={() => setSuggestion('How many oceans do we have in the world? and what are the names ?')}>🌊 Oceans</button>
-                <button onClick={() => setSuggestion('How many planets are there in our solar system?')}>🌎🌕☄️🪐🚀 Planets</button>
               </div>
               <p style={{ fontSize: '14px', color: '#555', marginTop: '16px' }}>
                 {isConnected ? '🔬 Start exploring science!' : '⏳ Connecting to the science lab...'}
@@ -250,7 +299,6 @@ function App() {
             ))
           )}
           
-          {/* Show loading indicator */}
           {isLoading && (
             <div className="thinking-container">
               <div className="thinking-bubble">
@@ -258,9 +306,12 @@ function App() {
                   <FaRobot />
                 </div>
                 <div className="thinking-content">
+                  <div className="thinking-text">
+                    <span>🔍 Searching the web...</span>
+                  </div>
                   <div className="thinking-subtext">
                     <span className="sparkle">✨</span>
-                    <span>MagnifiScience AI is analyzing your question ...</span>
+                    <span>Finding the best results for you...</span>
                   </div>
                   <div className="thinking-progress">
                     <div className="progress-bar">
