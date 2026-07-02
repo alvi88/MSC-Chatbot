@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 // Use relative URL - proxy will handle it
-const API_BASE = '/api';
+const API_BASE = '';
 
 const api = axios.create({
   baseURL: API_BASE,
